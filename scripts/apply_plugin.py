@@ -201,6 +201,33 @@ def check_conflicts(plugin_path: Path, target_path: Path,
                 "path": str(target_mcp_file)
             })
 
+    # 检查 skills
+    skills_list = content.get("skills", [])
+    if skills_list and (not content_filter or content_filter.get("skills")):
+        skills_dir = plugin_path / "skills"
+        target_skills_dir = target_path / "skills"
+
+        if skills_list == ["all"]:
+            for skill_dir in skills_dir.glob("*"):
+                if skill_dir.is_dir() and not skill_dir.name.startswith('.'):
+                    dst = target_skills_dir / skill_dir.name
+                    if dst.exists():
+                        conflicts.append({
+                            "type": "skill",
+                            "file": skill_dir.name,
+                            "path": str(dst)
+                        })
+        else:
+            for skill_name in skills_list:
+                src = skills_dir / skill_name
+                dst = target_skills_dir / skill_name
+                if src.exists() and dst.exists():
+                    conflicts.append({
+                        "type": "skill",
+                        "file": skill_name,
+                        "path": str(dst)
+                    })
+
     return conflicts
 
 
@@ -369,6 +396,71 @@ def apply_plugin(plugin_path: Path, target_path: Path,
             else:
                 print(f"    {msg}")
 
+    # 应用 skills
+    if apply_content.get("skills"):
+        print("应用 Skills:")
+        skills_list = apply_content["skills"]
+        skills_dir = plugin_path / "skills"
+        target_skills_dir = target_path / "skills"
+
+        if not dry_run:
+            ensure_dirs_exist([target_skills_dir])
+
+        if skills_list == ["all"]:
+            for skill_dir in skills_dir.glob("*"):
+                if skill_dir.is_dir() and not skill_dir.name.startswith('.'):
+                    dst = target_skills_dir / skill_dir.name
+
+                    if dry_run:
+                        print(f"  [DRY RUN] 会复制目录: {skill_dir.name}")
+                    else:
+                        try:
+                            if dst.exists():
+                                if conflict_mode == "ask":
+                                    response = input(f"    {skill_dir.name} 已存在，是否覆盖？(y/N): ")
+                                    if response.lower() != 'y':
+                                        print(f"    跳过: {skill_dir.name}")
+                                        continue
+                                elif conflict_mode == "skip":
+                                    print(f"    跳过（已存在）: {skill_dir.name}")
+                                    continue
+                                shutil.rmtree(dst)
+
+                            shutil.copytree(skill_dir, dst)
+                            file_count += 1
+                            print(f"    成功复制: {skill_dir.name}")
+                        except Exception as e:
+                            print(f"    复制失败: {skill_dir.name} - {e}")
+        else:
+            for skill_name in skills_list:
+                src = skills_dir / skill_name
+                dst = target_skills_dir / skill_name
+
+                if not src.exists():
+                    print(f"    跳过（不存在）: {skill_name}")
+                    continue
+
+                if dry_run:
+                    print(f"  [DRY RUN] 会复制目录: {skill_name}")
+                else:
+                    try:
+                        if dst.exists():
+                            if conflict_mode == "ask":
+                                response = input(f"    {skill_name} 已存在，是否覆盖？(y/N): ")
+                                if response.lower() != 'y':
+                                    print(f"    跳过: {skill_name}")
+                                    continue
+                            elif conflict_mode == "skip":
+                                print(f"    跳过（已存在）: {skill_name}")
+                                continue
+                            shutil.rmtree(dst)
+
+                        shutil.copytree(src, dst)
+                        file_count += 1
+                        print(f"    成功复制: {skill_name}")
+                    except Exception as e:
+                        print(f"    复制失败: {skill_name} - {e}")
+
     # 更新应用记录
     print()
     if not dry_run:
@@ -453,6 +545,8 @@ def main():
                         help="hooks 处理模式")
     parser.add_argument("--mcp", action="store_true",
                         help="是否应用 mcp")
+    parser.add_argument("--skills", type=str, default="",
+                        help="要应用的 skills (all 或逗号分隔)")
     parser.add_argument("--conflict-mode", type=str, default="ask",
                         choices=["ask", "overwrite", "skip", "rename"],
                         help="冲突处理模式")
@@ -520,6 +614,12 @@ def main():
 
         if args.mcp:
             content_filter["mcp"] = ["mcp.json"]
+
+        if args.skills:
+            if args.skills == "all":
+                content_filter["skills"] = ["all"]
+            else:
+                content_filter["skills"] = [s.strip() for s in args.skills.split(",") if s.strip()]
 
         success = apply_plugin(
             plugin_path,

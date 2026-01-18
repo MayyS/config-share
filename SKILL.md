@@ -1,11 +1,54 @@
 ---
 name: config-share
-description: 用于团队协同分享 Claude Code 配置（commands、agents、hooks、mcp），支持打包、发布、应用和更新插件
+description: 用于团队协同分享 Claude Code 配置（commands、agents、hooks、mcp、skills），支持打包、发布、应用和更新插件
 ---
 
 # Config Share 技能
 
-用于团队协同分享 Claude Code 配置（commands、agents、hooks、mcp），支持打包、发布、应用和更新插件。
+## 交互指令 (Prompt Instructions)
+
+当用户调用 `/config-share` 且未提供具体参数时，**必须**遵循以下交互流程。严禁仅输出文本列表，必须使用 `AskUserQuestion` 工具。
+
+### 1. 主菜单 (Main Menu)
+使用 `AskUserQuestion` 展示主菜单：
+- **Question**: "Config Share 工具集已加载。请选择您要执行的操作："
+- **Options**:
+  1. **打包分享 (Pack)** - 将配置打包成插件
+  2. **应用插件 (Apply)** - 安装插件
+  3. **管理插件 (Manage)** - 查看已安装插件
+  4. **验证插件 (Validate)** - 检查插件格式
+
+### 2. 细粒度操作流程 (Detailed Workflows)
+
+#### 📦 用户选择 "Pack" (打包)
+1. **询问名称**: 使用 `AskUserQuestion` 询问插件名称 (e.g., "my-team-config")。
+2. **扫描资源**: 使用 `bash` 命令扫描当前目录下的资源：
+   - Commands: `ls commands/*.md`
+   - Agents: `ls agents/*.md`
+   - Skills: `ls -d skills/*/`
+   - MCP: 检查 `mcp.json` 是否存在
+3. **选择内容**: 根据扫描结果，使用 `AskUserQuestion` (multiSelect=true) 让用户勾选要打包的具体内容。
+   - **重要**: 选项必须清晰标识类型，例如 `[Agent] code-reviewer`, `[Command] git-commit`, `[Skill] python-expert`。
+   - 如果某类资源为空，则不显示该类别的选项。
+4. **执行**: 根据用户选择，构建并运行 `pack_plugin.py` 命令。
+   - 例如: `python scripts/pack_plugin.py --name my-plugin --agents code-reviewer --commands git-commit`
+
+#### 📥 用户选择 "Apply" (应用)
+1. **询问来源**: 使用 `AskUserQuestion` 询问插件来源 (Git URL 或本地路径)。
+2. **下载/分析**: 先运行下载命令以获取元数据: `python scripts/apply_plugin.py --source <URL> --download`
+3. **扫描下载内容**: 检查下载目录（通常在输出日志中会显示路径，或者默认在临时目录）中的 `share_plugins.json` 或直接扫描目录结构。
+4. **选择内容**: 使用 `AskUserQuestion` (multiSelect=true) 列出插件中包含的所有组件，让用户勾选要安装的部分。
+   - 选项应包括插件内的所有 agents, commands, skills 等。
+5. **执行**: 根据用户选择，构建并运行 `apply_plugin.py` 命令。
+   - 例如: `python scripts/apply_plugin.py --source <URL> --apply --agents code-reviewer`
+
+#### 🔧 用户选择 "Manage" (管理)
+1. 运行 `python scripts/list_plugins.py` 展示列表。
+2. 使用 `AskUserQuestion` 询问后续操作（删除插件、更新插件或退出）。
+
+---
+
+用于团队协同分享 Claude Code 配置（commands、agents、hooks、mcp、skills），支持打包、发布、应用和更新插件。
 
 ## 核心概念
 
@@ -40,20 +83,22 @@ description: 用于团队协同分享 Claude Code 配置（commands、agents、h
 # 列出可打包的内容
 python scripts/pack_plugin.py --list
 
-# 打包插件（包含 commands 和 agents）
+# 打包插件（包含 commands、agents、hooks、mcp 和 skills）
 python scripts/pack_plugin.py \
   --name my-plugin \
   --version 1.0.0 \
   --commands all \
   --agents agent1,agent2 \
   --hooks \
-  --mcp
+  --mcp \
+  --skills all
 
 # 排除特定文件
 python scripts/pack_plugin.py \
   --name my-plugin \
   --commands all \
-  --exclude '{"commands": ["private-command.md"]}'
+  --skills skill1,skill2 \
+  --exclude '{"commands": ["private-command.md"], "skills": ["private-skill"]}'
 ```
 
 ### 2. 发布到仓库
@@ -102,17 +147,19 @@ python scripts/apply_plugin.py \
   --source https://github.com/username/my-plugin \
   --check-conflicts
 
-# 应用插件（Hooks 使用 smart 模式）
+# 应用插件（Hooks 使用 smart 模式，包含 skills）
 python scripts/apply_plugin.py \
   --source https://github.com/username/my-plugin \
   --target ~/.claude/ \
   --apply \
-  --hooks smart
+  --hooks smart \
+  --skills all
 
 # 只应用特定内容
 python scripts/apply_plugin.py \
   --source https://github.com/username/my-plugin \
   --commands agent1,agent2 \
+  --skills skill1 \
   --hooks replace
 
 # 试运行

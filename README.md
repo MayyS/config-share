@@ -1,6 +1,6 @@
 # Config Share
 
-用于团队协同分享 Claude Code 配置（commands、agents、hooks、mcp）的 Skill。
+用于团队协同分享 Claude Code 配置（commands、agents、hooks、mcp、skills）的 Skill。
 
 ## 功能
 
@@ -10,6 +10,7 @@
 - 插件更新和管理
 - Hooks 智能合并
 - 文件冲突处理
+- Skills 目录完整复制
 
 ## 安装
 
@@ -19,14 +20,14 @@
 
 ```bash
 # 打包插件
-python scripts/pack_plugin.py --name my-plugin --commands all
+python scripts/pack_plugin.py --name my-plugin --commands all --skills all
 
 # 发布到 GitHub
 python scripts/publish_plugin.py --plugin ./claude_share/my-plugin \
   --repo https://github.com/username/my-plugin
 
 # 应用插件
-python scripts/apply_plugin.py --source https://github.com/username/my-plugin --apply
+python scripts/apply_plugin.py --source https://github.com/username/my-plugin --apply --skills all
 ```
 
 ## 文档

@@ -40,7 +40,8 @@ def list_packable_content(source_path: Path) -> dict:
         "commands": [],
         "agents": [],
         "hooks": None,
-        "mcp": []
+        "mcp": [],
+        "skills": []
     }
 
     # Commands
@@ -62,6 +63,11 @@ def list_packable_content(source_path: Path) -> dict:
     mcp_file = source_path / "mcp.json"
     if mcp_file.exists():
         content["mcp"] = ["mcp.json"]
+
+    # Skills
+    skills_dir = source_path / "skills"
+    if skills_dir.exists():
+        content["skills"] = [d.name for d in skills_dir.iterdir() if d.is_dir() and not d.name.startswith('.')]
 
     return content
 
@@ -320,6 +326,58 @@ def pack_mcp(include: bool, source_path: Path, output_path: Path,
             return False, {}
 
 
+def pack_skills(skills_list: list, source_path: Path, output_path: Path,
+               exclude_list: list = None, dry_run: bool = False) -> int:
+    """
+    打包 skills
+
+    Args:
+        skills_list: 要打包的 skills 列表
+        source_path: 源路径
+        output_path: 输出路径
+        exclude_list: 要排除的列表
+        dry_run: 试运行
+
+    Returns:
+        打包的目录数量
+    """
+    if not skills_list:
+        return 0
+
+    count = 0
+    skills_dir = source_path / "skills"
+    output_skills_dir = output_path / "skills"
+    exclude_set = set(exclude_list or [])
+
+    if dry_run:
+        print(f"[DRY RUN] 会创建目录: {output_skills_dir}")
+
+    for skill_name in skills_list:
+        if skill_name in exclude_set:
+            continue
+
+        src_dir = skills_dir / skill_name
+        if not src_dir.exists() or not src_dir.is_dir():
+            print(f"警告: skill 目录不存在: {src_dir}")
+            continue
+
+        dst_dir = output_skills_dir / skill_name
+
+        if dry_run:
+            print(f"[DRY RUN] 会复制目录: {src_dir} -> {dst_dir}")
+        else:
+            try:
+                if dst_dir.exists():
+                    shutil.rmtree(dst_dir)
+                shutil.copytree(src_dir, dst_dir)
+                count += 1
+                print(f"  成功复制: {skill_name}")
+            except Exception as e:
+                print(f"  复制失败: {skill_name} - {e}")
+
+    return count
+
+
 def main():
     parser = argparse.ArgumentParser(description="打包 Claude Code 配置为插件")
     parser.add_argument("--source", type=str, default="~/.claude/",
@@ -338,6 +396,8 @@ def main():
                         help="是否包含 hooks")
     parser.add_argument("--mcp", action="store_true",
                         help="是否包含 mcp")
+    parser.add_argument("--skills", type=str, default="",
+                        help="包含的 skills (all 或逗号分隔的目录名)")
     parser.add_argument("--exclude", type=str, default="{}",
                         help="排除的文件 JSON 格式")
     parser.add_argument("--description", type=str, default="",
@@ -371,6 +431,7 @@ def main():
         print(f"  Agents: {', '.join(content['agents']) or '无'}")
         print(f"  Hooks: {'hooks.json' if content['hooks'] else '无'}")
         print(f"  MCP: {', '.join(content['mcp']) or '无'}")
+        print(f"  Skills: {', '.join(content['skills']) or '无'}")
         return 0
 
     # 解析排除列表
@@ -453,6 +514,22 @@ def main():
             file_count += 1
             all_env_vars.update(mcp_envs)
 
+    # Skills
+    available_skills = []
+    skills_dir = source_path / "skills"
+    if skills_dir.exists():
+        available_skills = [d.name for d in skills_dir.iterdir() if d.is_dir() and not d.name.startswith('.')]
+    skills_list = parse_content_list(args.skills, available_skills)
+    if skills_list:
+        print("打包 Skills:")
+        file_count += pack_skills(
+            skills_list,
+            source_path,
+            plugin_dir,
+            exclude.get("skills", []),
+            args.dry_run
+        )
+
     # 创建 .env.example 文件（如果有敏感信息）
     if all_env_vars and not args.skip_sanitize and not args.dry_run:
         env_example = generate_env_example(all_env_vars)
@@ -477,6 +554,7 @@ def main():
         plugin_data["content"]["agents"] = agents_list
         plugin_data["content"]["hooks"] = ["hooks.json"] if args.hooks else []
         plugin_data["content"]["mcp"] = ["mcp.json"] if args.mcp else []
+        plugin_data["content"]["skills"] = skills_list if skills_list != available_skills else ["all"]
         plugin_data["exclude"] = exclude
         plugin_data["metadata"]["file_count"] = file_count
 
