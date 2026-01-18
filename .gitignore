@@ -19,3 +19,5 @@ Thumbs.db
 # 临时文件
 *.tmp
 *.log
+
+share_config.json.example.json

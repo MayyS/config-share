@@ -20,6 +20,10 @@ from config_utils import (
     create_share_plugins_json, write_share_plugins_json,
     count_files, calculate_file_hash
 )
+from sanitize_utils import (
+    detect_sensitive_fields, sanitize_json, generate_env_example,
+    count_placeholders
+)
 
 
 def list_packable_content(source_path: Path) -> dict:
@@ -183,7 +187,7 @@ def pack_agents(agents_list: list, source_path: Path, output_path: Path,
 
 
 def pack_hooks(include: bool, source_path: Path, output_path: Path,
-              dry_run: bool = False) -> bool:
+              skip_sanitize: bool = False, dry_run: bool = False) -> tuple[bool, dict]:
     """
     打包 hooks
 
@@ -191,36 +195,66 @@ def pack_hooks(include: bool, source_path: Path, output_path: Path,
         include: 是否包含
         source_path: 源路径
         output_path: 输出路径
+        skip_sanitize: 是否跳过脱敏
         dry_run: 试运行
 
     Returns:
-        是否成功
+        (是否成功, 环境变量字典)
     """
     if not include:
-        return False
+        return False, {}
 
     src_file = source_path / "hooks.json"
     dst_file = output_path / "hooks.json"
 
     if not src_file.exists():
         print(f"警告: hooks.json 不存在: {src_file}")
-        return False
+        return False, {}
+
+    # 读取 JSON 进行脱敏处理
+    hooks_data = load_json(src_file)
+
+    if hooks_data:
+        env_vars = {}
+        if not skip_sanitize:
+            # 检测敏感字段
+            env_vars = detect_sensitive_fields(hooks_data)
+            if env_vars:
+                print(f"  检测到 {len(env_vars)} 个敏感字段，正在脱敏...")
+                hooks_data = sanitize_json(hooks_data, env_vars)
+    else:
+        env_vars = {}
 
     if dry_run:
-        print(f"[DRY RUN] 会复制: {src_file} -> {dst_file}")
-        return True
+        if env_vars:
+            print(f"[DRY RUN] 会脱敏并写入: {src_file} -> {dst_file}")
+        else:
+            print(f"[DRY RUN] 会复制: {src_file} -> {dst_file}")
+        return True, env_vars
 
-    success, msg = copy_with_conflict(src_file, dst_file, mode="overwrite")
-    if success:
-        print(f"  {msg}")
-        return True
+    # 写入处理后的 JSON
+    if hooks_data:
+        if save_json(dst_file, hooks_data):
+            print(f"  成功处理: {dst_file}")
+            placeholder_count = count_placeholders(hooks_data)
+            if placeholder_count > 0:
+                print(f"    已替换 {placeholder_count} 个敏感值为环境变量占位符")
+            return True, env_vars
+        else:
+            print(f"  写入失败: {dst_file}")
+            return False, env_vars
     else:
-        print(f"  {msg}")
-        return False
+        success, msg = copy_with_conflict(src_file, dst_file, mode="overwrite")
+        if success:
+            print(f"  {msg}")
+            return True, {}
+        else:
+            print(f"  {msg}")
+            return False, {}
 
 
 def pack_mcp(include: bool, source_path: Path, output_path: Path,
-            dry_run: bool = False) -> bool:
+            skip_sanitize: bool = False, dry_run: bool = False) -> tuple[bool, dict]:
     """
     打包 mcp
 
@@ -228,32 +262,62 @@ def pack_mcp(include: bool, source_path: Path, output_path: Path,
         include: 是否包含
         source_path: 源路径
         output_path: 输出路径
+        skip_sanitize: 是否跳过脱敏
         dry_run: 试运行
 
     Returns:
-        是否成功
+        (是否成功, 环境变量字典)
     """
     if not include:
-        return False
+        return False, {}
 
     src_file = source_path / "mcp.json"
     dst_file = output_path / "mcp.json"
 
     if not src_file.exists():
         print(f"警告: mcp.json 不存在: {src_file}")
-        return False
+        return False, {}
+
+    # 读取 JSON 进行脱敏处理
+    mcp_data = load_json(src_file)
+
+    if mcp_data:
+        env_vars = {}
+        if not skip_sanitize:
+            # 检测敏感字段
+            env_vars = detect_sensitive_fields(mcp_data)
+            if env_vars:
+                print(f"  检测到 {len(env_vars)} 个敏感字段，正在脱敏...")
+                mcp_data = sanitize_json(mcp_data, env_vars)
+    else:
+        env_vars = {}
 
     if dry_run:
-        print(f"[DRY RUN] 会复制: {src_file} -> {dst_file}")
-        return True
+        if env_vars:
+            print(f"[DRY RUN] 会脱敏并写入: {src_file} -> {dst_file}")
+        else:
+            print(f"[DRY RUN] 会复制: {src_file} -> {dst_file}")
+        return True, env_vars
 
-    success, msg = copy_with_conflict(src_file, dst_file, mode="overwrite")
-    if success:
-        print(f"  {msg}")
-        return True
+    # 写入处理后的 JSON
+    if mcp_data:
+        if save_json(dst_file, mcp_data):
+            print(f"  成功处理: {dst_file}")
+            placeholder_count = count_placeholders(mcp_data)
+            if placeholder_count > 0:
+                print(f"    已替换 {placeholder_count} 个敏感值为环境变量占位符")
+            return True, env_vars
+        else:
+            print(f"  写入失败: {dst_file}")
+            return False, env_vars
     else:
-        print(f"  {msg}")
-        return False
+        success, msg = copy_with_conflict(src_file, dst_file, mode="overwrite")
+        if success:
+            print(f"  {msg}")
+            return True, {}
+        else:
+            print(f"  {msg}")
+            return False, {}
 
 
 def main():
@@ -286,6 +350,8 @@ def main():
                         help="列出可打包内容")
     parser.add_argument("--dry-run", action="store_true",
                         help="试运行")
+    parser.add_argument("--skip-sanitize", action="store_true",
+                        help="跳过敏感信息脱敏（保留原始值）")
 
     args = parser.parse_args()
 
@@ -367,16 +433,34 @@ def main():
         )
 
     # Hooks
+    all_env_vars = {}
     if args.hooks:
         print("打包 Hooks:")
-        if pack_hooks(True, source_path, plugin_dir, args.dry_run):
+        success, hooks_envs = pack_hooks(
+            True, source_path, plugin_dir, args.skip_sanitize, args.dry_run
+        )
+        if success:
             file_count += 1
+            all_env_vars.update(hooks_envs)
 
     # MCP
     if args.mcp:
         print("打包 MCP:")
-        if pack_mcp(True, source_path, plugin_dir, args.dry_run):
+        success, mcp_envs = pack_mcp(
+            True, source_path, plugin_dir, args.skip_sanitize, args.dry_run
+        )
+        if success:
             file_count += 1
+            all_env_vars.update(mcp_envs)
+
+    # 创建 .env.example 文件（如果有敏感信息）
+    if all_env_vars and not args.skip_sanitize and not args.dry_run:
+        env_example = generate_env_example(all_env_vars)
+        env_file = plugin_dir / ".env.example"
+        env_file.write_text(env_example)
+        print()
+        print(f"创建: {env_file} (包含 {len(all_env_vars)} 个环境变量模板)")
+        print("提示: 使用插件时，请复制 .env.example 为 .env 并填入真实值")
 
     # 创建 share_plugins.json
     print()

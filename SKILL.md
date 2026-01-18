@@ -183,6 +183,7 @@ python scripts/validate_plugin.py \
 - **plugin-format.md**: 插件格式说明 (`references/plugin-format.md`)
 - **troubleshooting.md**: 故障排除指南 (`references/troubleshooting.md`)
 - **github-setup.md**: GitHub/GitLab 设置指南 (`references/github-setup.md`)
+- **security.md**: 敏感信息保护机制 (`references/security.md`)
 
 ## 配置文件路径
 
@@ -212,3 +213,29 @@ python scripts/validate_plugin.py \
 - GitHub
 - GitLab
 - 自定义仓库（用户自行提供）
+
+### 敏感信息保护
+
+打包时自动检测和脱敏敏感信息（API keys、tokens、passwords 等）：
+
+- **自动检测**: 识别以 `_KEY`、`_TOKEN`、`_SECRET`、`_PASSWORD` 结尾的字段
+- **占位符替换**: 将敏感值替换为 `${VAR_NAME}` 格式的环境变量占位符
+- **.env.example 生成**: 自动生成环境变量模板文件
+
+**使用示例**：
+
+```bash
+# 打包时自动脱敏
+python scripts/pack_plugin.py \
+  --name my-plugin \
+  --mcp \
+  --hooks
+
+# 跳过脱敏（不推荐）
+python scripts/pack_plugin.py \
+  --name my-plugin \
+  --mcp \
+  --skip-sanitize
+```
+
+详细说明请参考 `references/security.md`。

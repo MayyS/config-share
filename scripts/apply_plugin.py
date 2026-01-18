@@ -22,6 +22,9 @@ from config_utils import (
     read_share_plugins_json, validate_share_plugins_json,
     get_plugin_path, update_apply_record
 )
+from sanitize_utils import (
+    find_env_files, count_placeholders, parse_env_example
+)
 
 
 def is_url(source: str) -> bool:
@@ -387,6 +390,41 @@ def apply_plugin(plugin_path: Path, target_path: Path,
 
         print(f"插件已缓存到: {local_plugin_dir}")
         print(f"更新应用记录到: share_plugins.json")
+
+    # 检查环境变量配置
+    env_files = find_env_files(plugin_path)
+    if env_files and not dry_run:
+        print()
+        print("=" * 60)
+        print("环境变量配置提示")
+        print("=" * 60)
+
+        env_example = plugin_path / ".env.example"
+        if env_example.exists():
+            env_vars = parse_env_example(env_example)
+            print(f"检测到 {len(env_vars)} 个环境变量需要配置:")
+            for key in env_vars.keys():
+                print(f"  - {key}")
+
+            print()
+            print("配置步骤:")
+            print(f"  1. 复制示例文件: cp {env_example} .env")
+            print(f"  2. 编辑 .env 文件，填入真实的环境变量值")
+            print(f"  3. 确保环境变量在运行时可访问（通过 export 或 dotenv）")
+
+            # 检查 hooks.json 和 mcp.json 中的占位符
+            placeholder_count = 0
+            if (target_path / "hooks.json").exists():
+                hooks_data = load_json(target_path / "hooks.json")
+                placeholder_count += count_placeholders(hooks_data)
+            if (target_path / "mcp.json").exists():
+                mcp_data = load_json(target_path / "mcp.json")
+                placeholder_count += count_placeholders(mcp_data)
+
+            if placeholder_count > 0:
+                print(f"  4. 配置文件中包含 {placeholder_count} 个环境变量占位符 (${{VAR_NAME}})")
+
+        print("=" * 60)
 
     print()
     print(f"完成! 应用了 {file_count} 个文件")
